@@ -1,0 +1,24 @@
+name: mini-cdp
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: cdp
+      POSTGRES_PASSWORD: cdp # local development only
+      POSTGRES_DB: cdp
+    ports:
+      # 5544 on the host so it does not clash with a Postgres that may already use 5432.
+      - "5544:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Scripts here run once, when the volume is created: they add the cdp_test database.
+      - ./deploy/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cdp -d cdp"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
