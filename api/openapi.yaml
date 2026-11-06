@@ -1,0 +1,547 @@
+openapi: 3.1.0
+info:
+  title: Mini CDP API
+  version: 1.0.0
+  description: |
+    A small customer data platform: collect user events, read user profiles and find audiences (segments).
+
+    - Every response carries an `X-Request-ID` header. Send your own (letters, digits, `-`, `_`, max 64) to trace a request.
+    - Errors share one shape: `{"error": {"code": "...", "message": "...", "details": [...]}}`.
+      `code` is stable for programs, `message` is for people.
+    - Timestamps are RFC 3339; responses are always in UTC.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: events
+  - name: users
+  - name: segments
+  - name: service
+
+paths:
+  /health:
+    get:
+      tags: [service]
+      summary: Is the service able to work?
+      description: 503 when the database cannot be reached, so a load balancer can stop sending traffic.
+      responses:
+        "200":
+          description: Service and database are up
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              example: { status: ok, database: up }
+        "503":
+          description: Database is down
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              example: { status: unavailable, database: down }
+
+  /openapi.yaml:
+    get:
+      tags: [service]
+      summary: This document
+      responses:
+        "200":
+          description: The OpenAPI document
+          content:
+            application/yaml: {}
+
+  /v1/events:
+    post:
+      tags: [events]
+      summary: Track one event
+      description: |
+        Safe to retry: sending the same `event_id` again stores nothing new and answers 200 `duplicate`.
+        `user_attributes` are merged into the user's profile (a newer value wins per key).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Event" }
+      responses:
+        "201":
+          description: New event stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventResult" }
+              example: { event_id: 7c9e6679-7425-40de-944b-e07fc1f90ae7, status: created }
+        "200":
+          description: This event_id was stored before; nothing changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventResult" }
+              example: { event_id: 7c9e6679-7425-40de-944b-e07fc1f90ae7, status: duplicate }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/events/batch:
+    post:
+      tags: [events]
+      summary: Track up to 500 events
+      description: |
+        All or nothing: if any event is invalid, nothing is stored and 422 lists the problems by position
+        (`events[3].name`). Otherwise all events are stored in one transaction. Body limit 1 MB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventBatch" }
+      responses:
+        "200":
+          description: Batch stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventBatchResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/users/{id}:
+    get:
+      tags: [users]
+      summary: User profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, maxLength: 128 }
+          example: u_42
+      responses:
+        "200":
+          description: The profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/segments:
+    post:
+      tags: [segments]
+      summary: Create a segment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SegmentInput" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location:
+              description: Path of the new segment
+              schema: { type: string, example: /v1/segments/1 }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Segment" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/NameTaken" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    get:
+      tags: [segments]
+      summary: List all segments
+      responses:
+        "200":
+          description: Every segment, oldest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [segments]
+                properties:
+                  segments:
+                    type: array
+                    items: { $ref: "#/components/schemas/Segment" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/segments/preview:
+    post:
+      tags: [segments]
+      summary: Count the users that rules would match, without saving
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rules]
+              additionalProperties: false
+              properties:
+                rules: { $ref: "#/components/schemas/Rules" }
+      responses:
+        "200":
+          description: Count and up to 10 sample user ids
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_count, sample_user_ids]
+                properties:
+                  user_count: { type: integer, example: 1 }
+                  sample_user_ids:
+                    type: array
+                    maxItems: 10
+                    items: { type: string }
+                    example: [u_43]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/segments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/SegmentID"
+    get:
+      tags: [segments]
+      summary: Get a segment
+      responses:
+        "200":
+          description: The segment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Segment" }
+        "400": { $ref: "#/components/responses/InvalidID" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    put:
+      tags: [segments]
+      summary: Replace a segment's name, description and rules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SegmentInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Segment" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/NameTaken" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "500": { $ref: "#/components/responses/InternalError" }
+    delete:
+      tags: [segments]
+      summary: Delete a segment
+      responses:
+        "204": { description: Deleted }
+        "400": { $ref: "#/components/responses/InvalidID" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/segments/{id}/users:
+    parameters:
+      - $ref: "#/components/parameters/SegmentID"
+    get:
+      tags: [segments]
+      summary: Users in a segment, one page at a time
+      description: |
+        Membership is computed at request time from the latest events. Users are ordered by id.
+        For the next page, pass the `next_cursor` of this page as `cursor`; it is null on the last page.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of members
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MembersPage" }
+        "400":
+          description: Bad segment id or limit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+components:
+  parameters:
+    SegmentID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+
+  responses:
+    BadRequest:
+      description: The body is not valid JSON, has an unknown field, or a field has the wrong type
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: unknown_field, message: 'Unknown field "occured_at".' } }
+    TooLarge:
+      description: The body is over the limit (64 KB, or 1 MB for a batch)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationFailed:
+      description: The JSON is readable but breaks the rules; every problem is listed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: validation_failed
+              message: Some fields are invalid. See details.
+              details:
+                - { field: name, problem: "must be snake_case (lowercase letters, digits, _), start with a letter and be at most 64 characters" }
+                - { field: occurred_at, problem: must not be in the future }
+    NotFound:
+      description: No such user or segment
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NameTaken:
+      description: Another segment already has this name
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: name_taken, message: A segment with this name already exists. } }
+    InvalidID:
+      description: The segment id is not a positive whole number
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InternalError:
+      description: Something failed on the server; details are only in the logs
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Health:
+      type: object
+      required: [status, database]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        database: { type: string, enum: [up, down] }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [invalid_json, unknown_field, body_too_large, validation_failed, not_found, name_taken, invalid_id, invalid_query, internal_error]
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                required: [field, problem]
+                properties:
+                  field: { type: string, example: "events[3].name" }
+                  problem: { type: string }
+
+    Event:
+      type: object
+      required: [event_id, user_id, name, occurred_at]
+      additionalProperties: false
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          description: Chosen by the client; the same id is stored only once
+        user_id: { type: string, minLength: 1, maxLength: 128 }
+        name:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{0,63}$"
+          examples: [page_view, product_view, add_to_cart, purchase]
+        occurred_at:
+          type: string
+          format: date-time
+          description: When it happened; at most 5 minutes in the future (clock skew)
+        properties:
+          type: object
+          description: Free-form. Numbers keep their exact digits. `purchase` events report `revenue`.
+        user_attributes:
+          type: object
+          description: Merged into the user's attributes, e.g. city or plan
+      example:
+        event_id: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        user_id: u_42
+        name: add_to_cart
+        occurred_at: "2026-11-06T06:30:00Z"
+        properties: { product_id: p_1001, price: 1299.90 }
+        user_attributes: { city: Istanbul }
+
+    EventResult:
+      type: object
+      required: [event_id, status]
+      properties:
+        event_id: { type: string, format: uuid }
+        status: { type: string, enum: [created, duplicate] }
+
+    EventBatch:
+      type: object
+      required: [events]
+      additionalProperties: false
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { $ref: "#/components/schemas/Event" }
+
+    EventBatchResult:
+      type: object
+      required: [received, created, duplicates, duplicate_event_ids]
+      properties:
+        received: { type: integer }
+        created: { type: integer }
+        duplicates: { type: integer }
+        duplicate_event_ids:
+          type: array
+          items: { type: string, format: uuid }
+      example: { received: 2, created: 1, duplicates: 1, duplicate_event_ids: [7c9e6679-7425-40de-944b-e07fc1f90ae7] }
+
+    Profile:
+      type: object
+      required: [user_id, attributes, first_seen_at, last_seen_at, total_events, event_counts, purchases, recent_events]
+      properties:
+        user_id: { type: string }
+        attributes: { type: object }
+        first_seen_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+        total_events: { type: integer }
+        event_counts:
+          type: object
+          additionalProperties: { type: integer }
+          example: { add_to_cart: 1, purchase: 1 }
+        purchases:
+          type: object
+          required: [count, total_revenue, last_at]
+          properties:
+            count: { type: integer }
+            total_revenue:
+              type: number
+              description: Sum of properties.revenue of purchase events, exact decimal
+              example: 349.50
+            last_at:
+              type: [string, "null"]
+              format: date-time
+        recent_events:
+          type: array
+          maxItems: 10
+          description: Newest first
+          items:
+            type: object
+            required: [event_id, name, occurred_at, properties]
+            properties:
+              event_id: { type: string, format: uuid }
+              name: { type: string }
+              occurred_at: { type: string, format: date-time }
+              properties: { type: object }
+
+    Rules:
+      type: object
+      required: [conditions]
+      additionalProperties: false
+      properties:
+        match:
+          type: string
+          enum: [all, any]
+          default: all
+          description: all = every condition (AND), any = at least one (OR)
+        conditions:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: { $ref: "#/components/schemas/Condition" }
+      example:
+        match: all
+        conditions:
+          - { type: event, event: add_to_cart, within_days: 7, min_count: 1 }
+          - { type: event, event: purchase, within_days: 7, max_count: 0 }
+          - { type: attribute, attribute: city, op: eq, value: Istanbul }
+
+    Condition:
+      oneOf:
+        - $ref: "#/components/schemas/EventCondition"
+        - $ref: "#/components/schemas/AttributeCondition"
+      discriminator:
+        propertyName: type
+        mapping:
+          event: "#/components/schemas/EventCondition"
+          attribute: "#/components/schemas/AttributeCondition"
+
+    EventCondition:
+      type: object
+      description: |
+        How many times the user did `event`, optionally only in the last `within_days` days.
+        Without counts it means "at least once". `max_count: 0` means "never".
+      required: [type, event]
+      additionalProperties: false
+      properties:
+        type: { const: event }
+        event: { type: string, pattern: "^[a-z][a-z0-9_]{0,63}$" }
+        within_days: { type: integer, minimum: 1, maximum: 365 }
+        min_count: { type: integer, minimum: 0 }
+        max_count: { type: integer, minimum: 0 }
+
+    AttributeCondition:
+      type: object
+      required: [type, attribute, op]
+      additionalProperties: false
+      properties:
+        type: { const: attribute }
+        attribute: { type: string, minLength: 1, maxLength: 64 }
+        op: { type: string, enum: [eq, neq, exists] }
+        value:
+          description: Required for eq and neq, not allowed for exists
+          type: [string, number, boolean]
+
+    SegmentInput:
+      type: object
+      required: [name, rules]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 500 }
+        rules: { $ref: "#/components/schemas/Rules" }
+
+    Segment:
+      type: object
+      required: [id, name, description, rules, created_at, updated_at]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        description: { type: string }
+        rules: { $ref: "#/components/schemas/Rules" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    MembersPage:
+      type: object
+      required: [segment_id, users, next_cursor]
+      properties:
+        segment_id: { type: integer, format: int64 }
+        users:
+          type: array
+          items:
+            type: object
+            required: [user_id, last_seen_at]
+            properties:
+              user_id: { type: string }
+              last_seen_at: { type: string, format: date-time }
+        next_cursor:
+          type: [string, "null"]
+          description: Pass as `cursor` to get the next page; null on the last page

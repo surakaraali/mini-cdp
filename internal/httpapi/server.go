@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/surakaraali/mini-cdp/api"
 )
 
 // Pinger is the small part of the database that the health check needs.
@@ -36,21 +38,38 @@ func NewServer(log *slog.Logger, deps Deps) *Server {
 	return &Server{log: log, db: deps.DB, events: deps.Events, profiles: deps.Profiles, segments: deps.Segments}
 }
 
+type route struct {
+	method  string
+	path    string
+	handler http.HandlerFunc
+}
+
+// routes is the list of endpoints. It is a plain list (not only mux registrations)
+// so a test can check that api/openapi.yaml documents every one of them.
+func (s *Server) routes() []route {
+	return []route{
+		{"GET", "/health", s.handleHealth},
+		{"GET", "/openapi.yaml", s.handleOpenAPI},
+		{"POST", "/v1/events", s.handleCreateEvent},
+		{"POST", "/v1/events/batch", s.handleCreateEventBatch},
+		{"GET", "/v1/users/{id}", s.handleGetUser},
+		{"POST", "/v1/segments", s.handleCreateSegment},
+		{"GET", "/v1/segments", s.handleListSegments},
+		{"POST", "/v1/segments/preview", s.handlePreviewSegment},
+		{"GET", "/v1/segments/{id}", s.handleGetSegment},
+		{"PUT", "/v1/segments/{id}", s.handleUpdateSegment},
+		{"DELETE", "/v1/segments/{id}", s.handleDeleteSegment},
+		{"GET", "/v1/segments/{id}/users", s.handleSegmentMembers},
+	}
+}
+
 // Handler returns the router wrapped in middleware.
 // The outermost wrapper runs first: requestID, then logging, then panic recovery, then the route.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", s.handleHealth)
-	mux.HandleFunc("POST /v1/events", s.handleCreateEvent)
-	mux.HandleFunc("POST /v1/events/batch", s.handleCreateEventBatch)
-	mux.HandleFunc("GET /v1/users/{id}", s.handleGetUser)
-	mux.HandleFunc("POST /v1/segments", s.handleCreateSegment)
-	mux.HandleFunc("GET /v1/segments", s.handleListSegments)
-	mux.HandleFunc("POST /v1/segments/preview", s.handlePreviewSegment)
-	mux.HandleFunc("GET /v1/segments/{id}", s.handleGetSegment)
-	mux.HandleFunc("PUT /v1/segments/{id}", s.handleUpdateSegment)
-	mux.HandleFunc("DELETE /v1/segments/{id}", s.handleDeleteSegment)
-	mux.HandleFunc("GET /v1/segments/{id}/users", s.handleSegmentMembers)
+	for _, rt := range s.routes() {
+		mux.HandleFunc(rt.method+" "+rt.path, rt.handler)
+	}
 
 	var h http.Handler = mux
 	h = s.recoverPanics(h)
@@ -76,4 +95,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, healthResponse{Status: "ok", Database: "up"})
+}
+
+// handleOpenAPI serves the API description, so tools like Swagger UI or Postman can load it from the service.
+func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml")
+	_, _ = w.Write(api.Spec)
 }

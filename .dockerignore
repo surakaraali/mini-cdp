@@ -1,0 +1,10 @@
+# Keep the build context small: the image only needs the Go sources.
+.git
+.github
+.claude
+bin
+docs
+deploy
+*.md
+coverage.out
+.env

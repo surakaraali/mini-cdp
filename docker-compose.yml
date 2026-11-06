@@ -20,5 +20,16 @@ services:
       timeout: 3s
       retries: 30
 
+  # The API in a container. `make run` runs it on the host instead; use one or the other (both use port 8080).
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgres://cdp:cdp@db:5432/cdp?sslmode=disable # "db" is the service name above
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy # wait until Postgres accepts connections
+
 volumes:
   pgdata:

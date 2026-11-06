@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      # A real PostgreSQL for the database tests, same version as docker-compose.yml.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: cdp
+          POSTGRES_PASSWORD: cdp
+          POSTGRES_DB: cdp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cdp -d cdp_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://cdp:cdp@localhost:5432/cdp_test?sslmode=disable
+      # GitHub sets CI=true, which makes database tests fail instead of skip when the database is missing.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Run gofmt on:"; echo "$unformatted"; exit 1; fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
+      - name: Tests (race detector on, packages one at a time because they share the database)
+        run: go test -race -count=1 -p 1 ./...
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the API and PostgreSQL
+        run: docker compose up -d --build --wait
+
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS localhost:8080/health; then echo; exit 0; fi
+            sleep 1
+          done
+          docker compose logs api
+          exit 1
+
+      - name: Track an event through the container
+        run: |
+          curl -fsS -X POST localhost:8080/v1/events -H 'Content-Type: application/json' -d '{
+            "event_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7", "user_id": "u_ci", "name": "page_view",
+            "occurred_at": "2026-01-01T00:00:00Z"}'
+          echo
+          curl -fsS localhost:8080/v1/users/u_ci
+
+      - name: Stop
+        if: always()
+        run: docker compose down -v
