@@ -23,8 +23,9 @@ db-reset: ## delete all local data and start Postgres again
 run: ## start the API on :8080
 	go run ./cmd/api
 
+# -p 1 runs one package at a time: the database tests of different packages share cdp_test.
 test: ## run all tests, including the ones that need Postgres
-	go test -count=1 ./...
+	go test -count=1 -p 1 ./...
 
 test-unit: ## run only the tests that need no database
 	TEST_DATABASE_URL= go test ./...

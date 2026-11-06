@@ -16,7 +16,7 @@ type fakePinger struct{ err error }
 func (f fakePinger) Ping(context.Context) error { return f.err }
 
 func newTestServer(db Pinger) *Server {
-	return NewServer(slog.New(slog.DiscardHandler), db)
+	return NewServer(slog.New(slog.DiscardHandler), Deps{DB: db})
 }
 
 func TestHealth(t *testing.T) {

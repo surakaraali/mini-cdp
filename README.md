@@ -10,7 +10,7 @@ questions like *"which users added something to their cart in the last 7 days bu
 ## Status
 
 - [x] **1. Skeleton**: project layout, PostgreSQL in Docker, schema migrations, `/health`, middleware, tests
-- [ ] **2. Event ingestion**: `POST /v1/events` and `POST /v1/events/batch`, idempotent by `event_id`
+- [x] **2. Event ingestion**: `POST /v1/events` and `POST /v1/events/batch`, idempotent by `event_id`
 - [ ] **3. Profiles and segments**: user profile, segment rules (JSON to parameterized SQL), segment members
 - [ ] **4. Performance**: 1M generated events, `EXPLAIN ANALYZE` before and after indexing
 - [ ] **5. Packaging**: Dockerfile, GitHub Actions CI, OpenAPI spec, final docs
@@ -28,10 +28,47 @@ curl localhost:8080/health
 
 `make help` lists every command.
 
+## API (so far)
+
+### `POST /v1/events`: track one event
+
+```bash
+curl -X POST localhost:8080/v1/events -H 'Content-Type: application/json' -d '{
+  "event_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "user_id": "u_42",
+  "name": "add_to_cart",
+  "occurred_at": "2026-11-06T06:30:00Z",
+  "properties": {"product_id": "p_1001", "price": 1299.90},
+  "user_attributes": {"city": "Istanbul"}
+}'
+```
+
+| Status | When | Body |
+|--------|------|------|
+| `201` | new event stored | `{"event_id": "...", "status": "created"}` |
+| `200` | same `event_id` sent before (safe retry) | `{"event_id": "...", "status": "duplicate"}` |
+| `400` | body is not valid JSON, or has an unknown field | `{"error": {"code": "invalid_json" \| "unknown_field", ...}}` |
+| `413` | body over 64 KB | `{"error": {"code": "body_too_large", ...}}` |
+| `422` | fields break the rules (every problem is listed) | `{"error": {"code": "validation_failed", "details": [{"field": "name", "problem": "..."}]}}` |
+
+Rules: `event_id` is a UUID chosen by the client; `name` is snake_case (max 64 characters);
+`occurred_at` is RFC 3339 and not in the future (5 minutes of clock skew allowed);
+`user_attributes` are merged into the user's profile.
+
+### `POST /v1/events/batch`: track up to 500 events
+
+Body: `{"events": [ ...same objects as above... ]}`, at most 1 MB.
+Either every event is valid and the batch is stored in one transaction, or nothing is stored and
+`422` lists the problems by position (`events[3].name`). Response:
+
+```json
+{"received": 2, "created": 1, "duplicates": 1, "duplicate_event_ids": ["7c9e6679-7425-40de-944b-e07fc1f90ae7"]}
+```
+
 ## Tests
 
 ```bash
-make test        # all tests; the database tests use the cdp_test database
+make test        # all tests; the database tests use the cdp_test database (packages run one at a time)
 make test-unit   # only the tests that need no database
 ```
 
@@ -50,7 +87,11 @@ make test-unit   # only the tests that need no database
 cmd/api/              entry point: config, database, HTTP server, graceful shutdown
 internal/config/      settings from environment variables
 internal/db/          connection pool and embedded SQL migrations (goose)
-internal/httpapi/     routes, handlers, middleware (request id, logging, panic recovery)
+internal/events/      event model, validation rules, per-user merge of a batch
+internal/store/       all SQL: idempotent batch insert with user upsert
+internal/httpapi/     routes, handlers, JSON decoding, middleware (request id, logging, panic recovery)
+internal/validate/    field-level validation errors
+internal/testdb/      test helper: migrated, empty test database
 deploy/initdb/        SQL run once when the Postgres volume is created
 docs/                 design and process notes
 ```

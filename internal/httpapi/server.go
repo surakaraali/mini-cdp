@@ -14,15 +14,22 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
+// Deps lists what the handlers depend on. Each field is an interface, so tests can pass fakes.
+type Deps struct {
+	DB     Pinger
+	Events EventSaver
+}
+
 // Server holds what the handlers need.
 type Server struct {
-	log *slog.Logger
-	db  Pinger
+	log    *slog.Logger
+	db     Pinger
+	events EventSaver
 }
 
 // NewServer creates a Server.
-func NewServer(log *slog.Logger, db Pinger) *Server {
-	return &Server{log: log, db: db}
+func NewServer(log *slog.Logger, deps Deps) *Server {
+	return &Server{log: log, db: deps.DB, events: deps.Events}
 }
 
 // Handler returns the router wrapped in middleware.
@@ -30,6 +37,8 @@ func NewServer(log *slog.Logger, db Pinger) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("POST /v1/events", s.handleCreateEvent)
+	mux.HandleFunc("POST /v1/events/batch", s.handleCreateEventBatch)
 
 	var h http.Handler = mux
 	h = s.recoverPanics(h)

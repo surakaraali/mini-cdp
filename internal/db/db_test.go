@@ -9,6 +9,7 @@ import (
 )
 
 // testDatabaseURL returns the test database address, or skips the test when it is not set.
+// Other packages use internal/testdb instead; this package cannot, because testdb imports db.
 // `make test` sets it; `make test-unit` leaves it empty so only the fast tests run.
 // A skipped test still prints "ok", so in CI (where CI=true) a missing URL fails instead.
 func testDatabaseURL(t *testing.T) string {

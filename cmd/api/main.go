@@ -14,6 +14,7 @@ import (
 	"github.com/surakaraali/mini-cdp/internal/config"
 	"github.com/surakaraali/mini-cdp/internal/db"
 	"github.com/surakaraali/mini-cdp/internal/httpapi"
+	"github.com/surakaraali/mini-cdp/internal/store"
 )
 
 func main() {
@@ -54,7 +55,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewServer(log, pool).Handler(),
+		Handler:           httpapi.NewServer(log, httpapi.Deps{DB: pool, Events: store.New(pool)}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second, // protects against clients that send headers very slowly
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
