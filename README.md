@@ -192,11 +192,12 @@ docs/                 performance report and plans, AI-assisted development note
 - Events are written straight to PostgreSQL. At high volume a queue (for example Kafka) in front of the database
   would absorb traffic spikes.
 
-## How this was built
+## Working with AI
 
-I built this with an AI coding assistant and reviewed its output before each commit.
-What it got wrong, how each mistake was caught, and which claims were checked by experiment is listed in
-[docs/ai-assisted-development.md](docs/ai-assisted-development.md).
+I built this with an AI coding assistant. I reviewed every change and checked its claims with tests and
+measurements instead of taking them on trust. [docs/ai-assisted-development.md](docs/ai-assisted-development.md)
+lists the 11 mistakes caught that way, including a "fix" that the race detector proved wrong,
+and what they have in common.
 
 ---
 
