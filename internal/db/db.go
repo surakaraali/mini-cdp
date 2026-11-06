@@ -71,6 +71,30 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) ([]int64, error) {
 	return applied, nil
 }
 
+// MigrateTo moves the schema up or down to exactly version. The benchmark uses it to measure
+// the same data with and without the indexes of a later migration.
+func MigrateTo(ctx context.Context, pool *pgxpool.Pool, version int64) error {
+	migrator, err := newMigrator(pool)
+	if err != nil {
+		return err
+	}
+	defer migrator.Close()
+
+	current, err := migrator.GetDBVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if version >= current {
+		_, err = migrator.UpTo(ctx, version)
+	} else {
+		_, err = migrator.DownTo(ctx, version)
+	}
+	if err != nil {
+		return fmt.Errorf("migrate to version %d: %w", version, err)
+	}
+	return nil
+}
+
 // newMigrator builds a goose provider that reads the embedded SQL files.
 // goose works with database/sql, so the pgx pool is wrapped in a *sql.DB.
 // Closing that wrapper does not close the pool.

@@ -1,0 +1,15 @@
+-- Segment count: city is Istanbul
+-- args: [map[city:Istanbul]]
+
+SELECT count(*)
+FROM users u
+WHERE (u.attributes @> $1::jsonb)
+
+Aggregate  (cost=1515.58..1515.59 rows=1 width=8) (actual time=8.709..8.710 rows=1 loops=1)
+  Buffers: shared hit=841
+  ->  Seq Scan on users u  (cost=0.00..1466.00 rows=19830 width=0) (actual time=0.007..7.627 rows=19906 loops=1)
+        Filter: (attributes @> '{"city": "Istanbul"}'::jsonb)
+        Rows Removed by Filter: 30094
+        Buffers: shared hit=841
+Planning Time: 0.066 ms
+Execution Time: 8.731 ms

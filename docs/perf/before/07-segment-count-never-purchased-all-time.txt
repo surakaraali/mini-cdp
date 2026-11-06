@@ -1,0 +1,38 @@
+-- Segment count: never purchased (all time)
+-- args: [purchase 0]
+
+WITH ec AS (
+    SELECT user_id,
+           count(*) FILTER (WHERE name = $1) AS c0
+    FROM events
+    WHERE (name = $1)
+    GROUP BY user_id
+)
+SELECT count(*)
+FROM users u LEFT JOIN ec ON ec.user_id = u.id
+WHERE (COALESCE(ec.c0, 0) <= $2)
+
+Aggregate  (cost=33431.36..33431.37 rows=1 width=8) (actual time=108.677..108.681 rows=1 loops=1)
+  Buffers: shared hit=16352 read=2358
+  ->  Hash Left Join  (cost=31972.43..33389.69 rows=16667 width=0) (actual time=93.452..107.762 rows=16215 loops=1)
+        Hash Cond: (u.id = ec.user_id)
+        Filter: (COALESCE(ec.c0, '0'::bigint) <= '0'::bigint)
+        Rows Removed by Filter: 33785
+        Buffers: shared hit=16352 read=2358
+        ->  Seq Scan on users u  (cost=0.00..1286.00 rows=50000 width=9) (actual time=0.005..2.971 rows=50000 loops=1)
+              Buffers: shared hit=786
+        ->  Hash  (cost=31577.55..31577.55 rows=31590 width=17) (actual time=93.220..93.222 rows=33785 loops=1)
+              Buckets: 65536 (originally 32768)  Batches: 1 (originally 1)  Memory Usage: 2129kB
+              Buffers: shared hit=15566 read=2358
+              ->  Subquery Scan on ec  (cost=30945.75..31577.55 rows=31590 width=17) (actual time=82.707..88.550 rows=33785 loops=1)
+                    Buffers: shared hit=15566 read=2358
+                    ->  HashAggregate  (cost=30945.75..31261.65 rows=31590 width=17) (actual time=82.706..86.140 rows=33785 loops=1)
+                          Group Key: events.user_id
+                          Batches: 1  Memory Usage: 3857kB
+                          Buffers: shared hit=15566 read=2358
+                          ->  Seq Scan on events  (cost=0.00..30424.00 rows=69567 width=19) (actual time=0.473..63.030 rows=70091 loops=1)
+                                Filter: (name = 'purchase'::text)
+                                Rows Removed by Filter: 929909
+                                Buffers: shared hit=15566 read=2358
+Planning Time: 0.097 ms
+Execution Time: 109.864 ms

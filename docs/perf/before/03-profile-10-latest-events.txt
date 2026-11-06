@@ -1,0 +1,27 @@
+-- Profile: 10 latest events
+-- args: [u_025000 10]
+
+SELECT event_id::text, name, occurred_at, properties
+		FROM events
+		WHERE user_id = $1
+		ORDER BY occurred_at DESC, id DESC
+		LIMIT $2
+
+Limit  (cost=24132.60..24133.77 rows=10 width=108) (actual time=27.819..30.119 rows=10 loops=1)
+  Buffers: shared hit=13461 read=4551
+  ->  Gather Merge  (cost=24132.60..24135.17 rows=22 width=108) (actual time=27.817..30.116 rows=10 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=13461 read=4551
+        ->  Sort  (cost=23132.58..23132.61 rows=11 width=108) (actual time=24.712..24.713 rows=5 loops=3)
+              Sort Key: occurred_at DESC, id DESC
+              Sort Method: quicksort  Memory: 26kB
+              Buffers: shared hit=13461 read=4551
+              Worker 0:  Sort Method: quicksort  Memory: 27kB
+              Worker 1:  Sort Method: quicksort  Memory: 25kB
+              ->  Parallel Seq Scan on events  (cost=0.00..23132.39 rows=11 width=108) (actual time=2.812..24.611 rows=7 loops=3)
+                    Filter: (user_id = 'u_025000'::text)
+                    Rows Removed by Filter: 333326
+                    Buffers: shared hit=13373 read=4551
+Planning Time: 0.079 ms
+Execution Time: 30.149 ms

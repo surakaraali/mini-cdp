@@ -1,0 +1,47 @@
+-- Segment count: cart abandoners, 7 days
+-- args: [add_to_cart now - 168h0m0s 1 purchase now - 168h0m0s 0]
+
+WITH ec AS (
+    SELECT user_id,
+           count(*) FILTER (WHERE name = $1 AND occurred_at >= $2) AS c0,
+           count(*) FILTER (WHERE name = $4 AND occurred_at >= $5) AS c1
+    FROM events
+    WHERE (name = $1 AND occurred_at >= $2) OR (name = $4 AND occurred_at >= $5)
+    GROUP BY user_id
+)
+SELECT count(*)
+FROM users u LEFT JOIN ec ON ec.user_id = u.id
+WHERE (COALESCE(ec.c0, 0) >= $3) AND (COALESCE(ec.c1, 0) <= $6)
+
+Aggregate  (cost=21112.98..21112.99 rows=1 width=8) (actual time=17.629..17.634 rows=1 loops=1)
+  Buffers: shared hit=2326
+  ->  Hash Left Join  (cost=19626.82..21099.09 rows=5556 width=0) (actual time=9.947..17.316 rows=6742 loops=1)
+        Hash Cond: (u.id = ec.user_id)
+        Filter: ((COALESCE(ec.c0, '0'::bigint) >= '1'::bigint) AND (COALESCE(ec.c1, '0'::bigint) <= '0'::bigint))
+        Rows Removed by Filter: 43258
+        Buffers: shared hit=2326
+        ->  Seq Scan on users u  (cost=0.00..1341.00 rows=50000 width=9) (actual time=0.006..2.180 rows=50000 loops=1)
+              Buffers: shared hit=841
+        ->  Hash  (cost=19474.30..19474.30 rows=12202 width=25) (actual time=9.914..9.917 rows=11339 loops=1)
+              Buckets: 16384  Batches: 1  Memory Usage: 760kB
+              Buffers: shared hit=1485
+              ->  Subquery Scan on ec  (cost=19230.26..19474.30 rows=12202 width=25) (actual time=6.838..8.698 rows=11339 loops=1)
+                    Buffers: shared hit=1485
+                    ->  HashAggregate  (cost=19230.26..19352.28 rows=12202 width=25) (actual time=6.837..7.951 rows=11339 loops=1)
+                          Group Key: events.user_id
+                          Batches: 1  Memory Usage: 1425kB
+                          Buffers: shared hit=1485
+                          ->  Bitmap Heap Scan on events  (cost=610.33..18972.90 rows=14706 width=27) (actual time=0.699..2.985 rows=15481 loops=1)
+                                Recheck Cond: (((name = 'add_to_cart'::text) AND (occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone)) OR ((name = 'purchase'::text) AND (occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone)))
+                                Heap Blocks: exact=1369
+                                Buffers: shared hit=1485
+                                ->  BitmapOr  (cost=610.33..610.33 rows=15412 width=0) (actual time=0.596..0.598 rows=0 loops=1)
+                                      Buffers: shared hit=116
+                                      ->  Bitmap Index Scan on events_name_occurred_at_idx  (cost=0.00..388.01 rows=9959 width=0) (actual time=0.419..0.419 rows=10048 loops=1)
+                                            Index Cond: ((name = 'add_to_cart'::text) AND (occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone))
+                                            Buffers: shared hit=75
+                                      ->  Bitmap Index Scan on events_name_occurred_at_idx  (cost=0.00..214.97 rows=5454 width=0) (actual time=0.177..0.177 rows=5433 loops=1)
+                                            Index Cond: ((name = 'purchase'::text) AND (occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone))
+                                            Buffers: shared hit=41
+Planning Time: 0.136 ms
+Execution Time: 17.930 ms

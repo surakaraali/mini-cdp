@@ -12,6 +12,27 @@ import (
 
 const recentEventsLimit = 10
 
+// The profile queries are exported so cmd/bench measures exactly the SQL the API runs.
+const (
+	QueryEventCounts = `SELECT name, count(*) FROM events WHERE user_id = $1 GROUP BY name`
+
+	// CASE skips revenue values that are not numbers (e.g. "abc"), instead of failing the whole query on the cast.
+	QueryPurchaseStats = `
+		SELECT count(*),
+		       COALESCE(sum(CASE WHEN jsonb_typeof(properties->'revenue') = 'number'
+		                         THEN (properties->>'revenue')::numeric END), 0)::text,
+		       max(occurred_at)
+		FROM events
+		WHERE user_id = $1 AND name = 'purchase'`
+
+	QueryRecentEvents = `
+		SELECT event_id::text, name, occurred_at, properties
+		FROM events
+		WHERE user_id = $1
+		ORDER BY occurred_at DESC, id DESC
+		LIMIT $2`
+)
+
 // Profile is everything we know about one user, ready to be sent as JSON.
 // Attributes and properties stay as raw JSON: they pass through untouched, with exact numbers.
 type Profile struct {
@@ -59,14 +80,7 @@ func (s *Store) GetProfile(ctx context.Context, userID string) (Profile, error) 
 		return Profile{}, err
 	}
 
-	// CASE skips revenue values that are not numbers (e.g. "abc"), instead of failing the whole query on the cast.
-	err = s.pool.QueryRow(ctx, `
-		SELECT count(*),
-		       COALESCE(sum(CASE WHEN jsonb_typeof(properties->'revenue') = 'number'
-		                         THEN (properties->>'revenue')::numeric END), 0)::text,
-		       max(occurred_at)
-		FROM events
-		WHERE user_id = $1 AND name = 'purchase'`, userID).
+	err = s.pool.QueryRow(ctx, QueryPurchaseStats, userID).
 		Scan(&p.Purchases.Count, &p.Purchases.TotalRevenue, &p.Purchases.LastAt)
 	if err != nil {
 		return Profile{}, fmt.Errorf("read purchase stats: %w", err)
@@ -79,8 +93,7 @@ func (s *Store) GetProfile(ctx context.Context, userID string) (Profile, error) 
 }
 
 func (s *Store) readEventCounts(ctx context.Context, p *Profile) error {
-	rows, err := s.pool.Query(ctx,
-		`SELECT name, count(*) FROM events WHERE user_id = $1 GROUP BY name`, p.UserID)
+	rows, err := s.pool.Query(ctx, QueryEventCounts, p.UserID)
 	if err != nil {
 		return fmt.Errorf("read event counts: %w", err)
 	}
@@ -101,12 +114,7 @@ func (s *Store) readEventCounts(ctx context.Context, p *Profile) error {
 }
 
 func (s *Store) readRecentEvents(ctx context.Context, p *Profile) error {
-	rows, err := s.pool.Query(ctx, `
-		SELECT event_id::text, name, occurred_at, properties
-		FROM events
-		WHERE user_id = $1
-		ORDER BY occurred_at DESC, id DESC
-		LIMIT $2`, p.UserID, recentEventsLimit)
+	rows, err := s.pool.Query(ctx, QueryRecentEvents, p.UserID, recentEventsLimit)
 	if err != nil {
 		return fmt.Errorf("read recent events: %w", err)
 	}

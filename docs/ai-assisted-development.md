@@ -24,6 +24,9 @@ and the mistakes I found in its output. Only real cases are listed, in the order
 | 3 | API timestamps followed the server's time zone: `+03:00` on a laptop in Istanbul, `Z` in Docker. Same instant, but responses differed per machine. Tests passed because they compare instants. | Trying the API with `curl` | pgx now scans `timestamptz` in UTC (`TimestamptzCodec.ScanLocation`), with a test that failed before the fix. |
 | 3 | The first version of that test depended on the machine's time zone, so on a CI runner in UTC it would pass even without the fix: a guard that guards nothing. The AI's own summary claimed the test "runs with TZ=Europe/Istanbul", but only the manual command did. | Checking the claim in this file against the test code | The test sets `time.Local` to UTC+3 itself; verified that it fails on a UTC machine when the fix is removed. |
 
+| 4 | Wrote a shell experiment that stored a command in a variable. zsh does not split such a variable into words, so every `psql` call failed, the GIN index was never created, and the script still printed "dropped" and a write timing labelled "with GIN". | Reading the output: empty timings and "command not found" lines | Rewrote it with a shell function and added checks that print whether the index exists before and after. |
+| 4 | The performance report quoted a plan excerpt from an earlier run, while saying the linked plan files come from the final run. The numbers were close, but not the ones in the files. | Checking the report against the plan files | Replaced the excerpt with the one from the linked file and labelled the one that comes from an experiment run. |
+
 ## Verified, not assumed
 
 Some design choices are easy to claim and hard to prove. These were checked by experiment:
@@ -32,3 +35,8 @@ Some design choices are easy to claim and hard to prove. These were checked by e
   `TestSaveEventsConcurrentOverlappingBatches` sends the same 200 events from 8 goroutines in shuffled order.
   With sorting it passes every time; with the two sort lines removed (in a throwaway copy) it failed
   3 out of 3 runs with `ERROR: deadlock detected (SQLSTATE 40P01)`.
+- **Indexes were chosen from measurements (step 4).** Before writing the index migration, `cmd/bench` measured
+  every API query on 1M events. The first index version made one query slower (63 ms to 121 ms); the plan showed why,
+  and a covering index fixed it (41 ms). A GIN index was measured and left out. Details in [performance.md](performance.md).
+- **Missing foreign key index (step 4).** The suspicion that cascading deletes scan the events table was turned into
+  a number before acting on it: deleting 2,000 users took 112 s without an index on `events.user_id` and 37 ms with it.

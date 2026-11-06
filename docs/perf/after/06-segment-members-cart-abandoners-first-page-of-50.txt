@@ -1,0 +1,53 @@
+-- Segment members: cart abandoners, first page of 50
+-- args: [add_to_cart now - 168h0m0s 1 purchase now - 168h0m0s 0  51]
+
+WITH ec AS (
+    SELECT user_id,
+           count(*) FILTER (WHERE name = $1 AND occurred_at >= $2) AS c0,
+           count(*) FILTER (WHERE name = $4 AND occurred_at >= $5) AS c1
+    FROM events
+    WHERE (name = $1 AND occurred_at >= $2) OR (name = $4 AND occurred_at >= $5)
+    GROUP BY user_id
+)
+SELECT u.id, u.last_seen_at
+FROM users u LEFT JOIN ec ON ec.user_id = u.id
+WHERE ((COALESCE(ec.c0, 0) >= $3) AND (COALESCE(ec.c1, 0) <= $6))
+  AND u.id > $7
+ORDER BY u.id
+LIMIT $8
+
+Limit  (cost=19991.15..20023.45 rows=51 width=17) (actual time=16.479..17.384 rows=51 loops=1)
+  Buffers: shared hit=1509
+  ->  Merge Left Join  (cost=19991.15..23509.35 rows=5556 width=17) (actual time=16.478..17.380 rows=51 loops=1)
+        Merge Cond: (u.id = events.user_id)
+        Filter: ((COALESCE((count(*) FILTER (WHERE ((events.name = 'add_to_cart'::text) AND (events.occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone)))), '0'::bigint) >= '1'::bigint) AND (COALESCE((count(*) FILTER (WHERE ((events.name = 'purchase'::text) AND (events.occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone)))), '0'::bigint) <= '0'::bigint))
+        Rows Removed by Filter: 382
+        Buffers: shared hit=1509
+        ->  Index Scan using users_pkey on users u  (cost=0.29..2611.29 rows=50000 width=17) (actual time=0.012..0.095 rows=433 loops=1)
+              Index Cond: (id > ''::text)
+              Buffers: shared hit=24
+        ->  Materialize  (cost=19990.86..20559.53 rows=12202 width=25) (actual time=16.439..17.131 rows=433 loops=1)
+              Buffers: shared hit=1485
+              ->  GroupAggregate  (cost=19990.86..20407.00 rows=12202 width=25) (actual time=16.436..17.064 rows=433 loops=1)
+                    Group Key: events.user_id
+                    Buffers: shared hit=1485
+                    ->  Sort  (cost=19990.86..20027.63 rows=14706 width=27) (actual time=16.408..16.574 rows=2797 loops=1)
+                          Sort Key: events.user_id
+                          Sort Method: quicksort  Memory: 1110kB
+                          Buffers: shared hit=1485
+                          ->  Bitmap Heap Scan on events  (cost=610.33..18972.90 rows=14706 width=27) (actual time=0.658..3.214 rows=15481 loops=1)
+                                Recheck Cond: (((name = 'add_to_cart'::text) AND (occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone)) OR ((name = 'purchase'::text) AND (occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone)))
+                                Heap Blocks: exact=1369
+                                Buffers: shared hit=1485
+                                ->  BitmapOr  (cost=610.33..610.33 rows=15412 width=0) (actual time=0.554..0.555 rows=0 loops=1)
+                                      Buffers: shared hit=116
+                                      ->  Bitmap Index Scan on events_name_occurred_at_idx  (cost=0.00..388.01 rows=9959 width=0) (actual time=0.368..0.368 rows=10048 loops=1)
+                                            Index Cond: ((name = 'add_to_cart'::text) AND (occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone))
+                                            Buffers: shared hit=75
+                                      ->  Bitmap Index Scan on events_name_occurred_at_idx  (cost=0.00..214.97 rows=5454 width=0) (actual time=0.186..0.186 rows=5433 loops=1)
+                                            Index Cond: ((name = 'purchase'::text) AND (occurred_at >= '2026-10-30 08:07:57.612113+00'::timestamp with time zone))
+                                            Buffers: shared hit=41
+Planning:
+  Buffers: shared hit=17
+Planning Time: 0.150 ms
+Execution Time: 17.557 ms

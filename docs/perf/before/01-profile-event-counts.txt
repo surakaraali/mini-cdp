@@ -1,0 +1,27 @@
+-- Profile: event counts
+-- args: [u_025000]
+
+SELECT name, count(*) FROM events WHERE user_id = $1 GROUP BY name
+
+Finalize GroupAggregate  (cost=24132.55..24133.67 rows=4 width=18) (actual time=27.239..29.375 rows=3 loops=1)
+  Group Key: name
+  Buffers: shared hit=11930 read=6068
+  ->  Gather Merge  (cost=24132.55..24133.59 rows=8 width=18) (actual time=27.231..29.371 rows=7 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=11930 read=6068
+        ->  Partial GroupAggregate  (cost=23132.52..23132.65 rows=4 width=18) (actual time=24.987..24.989 rows=2 loops=3)
+              Group Key: name
+              Buffers: shared hit=11930 read=6068
+              ->  Sort  (cost=23132.52..23132.55 rows=11 width=10) (actual time=24.978..24.979 rows=7 loops=3)
+                    Sort Key: name
+                    Sort Method: quicksort  Memory: 25kB
+                    Buffers: shared hit=11930 read=6068
+                    Worker 0:  Sort Method: quicksort  Memory: 25kB
+                    Worker 1:  Sort Method: quicksort  Memory: 25kB
+                    ->  Parallel Seq Scan on events  (cost=0.00..23132.33 rows=11 width=10) (actual time=2.090..24.902 rows=7 loops=3)
+                          Filter: (user_id = 'u_025000'::text)
+                          Rows Removed by Filter: 333326
+                          Buffers: shared hit=11856 read=6068
+Planning Time: 0.072 ms
+Execution Time: 29.403 ms

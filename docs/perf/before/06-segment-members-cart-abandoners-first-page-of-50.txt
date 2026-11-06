@@ -1,0 +1,54 @@
+-- Segment members: cart abandoners, first page of 50
+-- args: [add_to_cart now - 168h0m0s 1 purchase now - 168h0m0s 0  51]
+
+WITH ec AS (
+    SELECT user_id,
+           count(*) FILTER (WHERE name = $1 AND occurred_at >= $2) AS c0,
+           count(*) FILTER (WHERE name = $4 AND occurred_at >= $5) AS c1
+    FROM events
+    WHERE (name = $1 AND occurred_at >= $2) OR (name = $4 AND occurred_at >= $5)
+    GROUP BY user_id
+)
+SELECT u.id, u.last_seen_at
+FROM users u LEFT JOIN ec ON ec.user_id = u.id
+WHERE ((COALESCE(ec.c0, 0) >= $3) AND (COALESCE(ec.c1, 0) <= $6))
+  AND u.id > $7
+ORDER BY u.id
+LIMIT $8
+
+Limit  (cost=26605.96..26650.76 rows=51 width=17) (actual time=29.075..32.851 rows=51 loops=1)
+  Buffers: shared hit=15477 read=2545
+  ->  Merge Left Join  (cost=26605.96..31486.94 rows=5556 width=17) (actual time=29.075..32.846 rows=51 loops=1)
+        Merge Cond: (u.id = events.user_id)
+        Filter: ((COALESCE((count(*) FILTER (WHERE ((events.name = 'add_to_cart'::text) AND (events.occurred_at >= '2026-10-30 08:05:49.000651+00'::timestamp with time zone)))), '0'::bigint) >= '1'::bigint) AND (COALESCE((count(*) FILTER (WHERE ((events.name = 'purchase'::text) AND (events.occurred_at >= '2026-10-30 08:05:49.000651+00'::timestamp with time zone)))), '0'::bigint) <= '0'::bigint))
+        Rows Removed by Filter: 382
+        Buffers: shared hit=15477 read=2545
+        ->  Index Scan using users_pkey on users u  (cost=0.29..2556.29 rows=50000 width=17) (actual time=0.019..0.071 rows=433 loops=1)
+              Index Cond: (id > ''::text)
+              Buffers: shared hit=24
+        ->  Materialize  (cost=26605.67..28590.43 rows=12298 width=25) (actual time=29.039..32.628 rows=433 loops=1)
+              Buffers: shared hit=15453 read=2545
+              ->  Finalize GroupAggregate  (cost=26605.67..28436.71 rows=12298 width=25) (actual time=29.034..32.563 rows=433 loops=1)
+                    Group Key: events.user_id
+                    Buffers: shared hit=15453 read=2545
+                    ->  Gather Merge  (cost=26605.67..28220.85 rows=12384 width=25) (actual time=29.028..32.405 rows=1141 loops=1)
+                          Workers Planned: 2
+                          Workers Launched: 2
+                          Buffers: shared hit=15453 read=2545
+                          ->  Partial GroupAggregate  (cost=25605.64..25791.40 rows=6192 width=25) (actual time=26.553..27.017 rows=1101 loops=3)
+                                Group Key: events.user_id
+                                Buffers: shared hit=15453 read=2545
+                                ->  Sort  (cost=25605.64..25621.12 rows=6192 width=27) (actual time=26.547..26.623 rows=1745 loops=3)
+                                      Sort Key: events.user_id
+                                      Sort Method: quicksort  Memory: 440kB
+                                      Buffers: shared hit=15453 read=2545
+                                      Worker 0:  Sort Method: quicksort  Memory: 433kB
+                                      Worker 1:  Sort Method: quicksort  Memory: 431kB
+                                      ->  Parallel Seq Scan on events  (cost=0.00..25215.67 rows=6192 width=27) (actual time=19.844..22.329 rows=5161 loops=3)
+                                            Filter: ((occurred_at >= '2026-10-30 08:05:49.000651+00'::timestamp with time zone) AND ((name = 'add_to_cart'::text) OR (name = 'purchase'::text)))
+                                            Rows Removed by Filter: 328172
+                                            Buffers: shared hit=15379 read=2545
+Planning:
+  Buffers: shared hit=17
+Planning Time: 0.271 ms
+Execution Time: 32.935 ms

@@ -1,0 +1,22 @@
+-- Profile: purchase stats
+-- args: [u_025000]
+
+SELECT count(*),
+		       COALESCE(sum(CASE WHEN jsonb_typeof(properties->'revenue') = 'number'
+		                         THEN (properties->>'revenue')::numeric END), 0)::text,
+		       max(occurred_at)
+		FROM events
+		WHERE user_id = $1 AND name = 'purchase'
+
+Aggregate  (cost=25174.25..25174.26 rows=1 width=48) (actual time=27.474..29.593 rows=1 loops=1)
+  Buffers: shared hit=12605 read=5319 written=96
+  ->  Gather  (cost=1000.00..25174.20 rows=2 width=58) (actual time=27.465..29.584 rows=0 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=12605 read=5319 written=96
+        ->  Parallel Seq Scan on events  (cost=0.00..24174.00 rows=1 width=58) (actual time=25.363..25.363 rows=0 loops=3)
+              Filter: ((user_id = 'u_025000'::text) AND (name = 'purchase'::text))
+              Rows Removed by Filter: 333333
+              Buffers: shared hit=12605 read=5319 written=96
+Planning Time: 0.086 ms
+Execution Time: 29.616 ms

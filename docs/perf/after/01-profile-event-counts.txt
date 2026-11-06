@@ -1,0 +1,21 @@
+-- Profile: event counts
+-- args: [u_025000]
+
+SELECT name, count(*) FROM events WHERE user_id = $1 GROUP BY name
+
+GroupAggregate  (cost=106.60..106.83 rows=4 width=18) (actual time=0.021..0.024 rows=3 loops=1)
+  Group Key: name
+  Buffers: shared hit=24
+  ->  Sort  (cost=106.60..106.66 rows=26 width=10) (actual time=0.020..0.021 rows=21 loops=1)
+        Sort Key: name
+        Sort Method: quicksort  Memory: 25kB
+        Buffers: shared hit=24
+        ->  Bitmap Heap Scan on events  (cost=4.63..105.99 rows=26 width=10) (actual time=0.009..0.016 rows=21 loops=1)
+              Recheck Cond: (user_id = 'u_025000'::text)
+              Heap Blocks: exact=21
+              Buffers: shared hit=24
+              ->  Bitmap Index Scan on events_user_id_occurred_at_idx  (cost=0.00..4.62 rows=26 width=0) (actual time=0.007..0.007 rows=21 loops=1)
+                    Index Cond: (user_id = 'u_025000'::text)
+                    Buffers: shared hit=3
+Planning Time: 0.021 ms
+Execution Time: 0.042 ms

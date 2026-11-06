@@ -1,0 +1,21 @@
+-- Profile: 10 latest events
+-- args: [u_025000 10]
+
+SELECT event_id::text, name, occurred_at, properties
+		FROM events
+		WHERE user_id = $1
+		ORDER BY occurred_at DESC, id DESC
+		LIMIT $2
+
+Limit  (cost=4.61..45.21 rows=10 width=108) (actual time=0.018..0.019 rows=10 loops=1)
+  Buffers: shared hit=14
+  ->  Incremental Sort  (cost=4.61..110.18 rows=26 width=108) (actual time=0.017..0.018 rows=10 loops=1)
+        Sort Key: occurred_at DESC, id DESC
+        Presorted Key: occurred_at
+        Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 26kB  Peak Memory: 26kB
+        Buffers: shared hit=14
+        ->  Index Scan using events_user_id_occurred_at_idx on events  (cost=0.42..109.01 rows=26 width=108) (actual time=0.006..0.010 rows=11 loops=1)
+              Index Cond: (user_id = 'u_025000'::text)
+              Buffers: shared hit=14
+Planning Time: 0.019 ms
+Execution Time: 0.028 ms

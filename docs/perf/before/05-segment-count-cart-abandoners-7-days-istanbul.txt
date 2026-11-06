@@ -1,0 +1,51 @@
+-- Segment count: cart abandoners, 7 days, Istanbul
+-- args: [add_to_cart now - 168h0m0s 1 purchase now - 168h0m0s 0 map[city:Istanbul]]
+
+WITH ec AS (
+    SELECT user_id,
+           count(*) FILTER (WHERE name = $1 AND occurred_at >= $2) AS c0,
+           count(*) FILTER (WHERE name = $4 AND occurred_at >= $5) AS c1
+    FROM events
+    WHERE (name = $1 AND occurred_at >= $2) OR (name = $4 AND occurred_at >= $5)
+    GROUP BY user_id
+)
+SELECT count(*)
+FROM users u LEFT JOIN ec ON ec.user_id = u.id
+WHERE (COALESCE(ec.c0, 0) >= $3) AND (COALESCE(ec.c1, 0) <= $6) AND (u.attributes @> $7::jsonb)
+
+Aggregate  (cost=29585.73..29585.74 rows=1 width=8) (actual time=40.875..40.956 rows=1 loops=1)
+  Buffers: shared hit=15617 read=3093 written=85
+  ->  Hash Left Join  (cost=28116.91..29580.19 rows=2213 width=0) (actual time=32.319..40.831 rows=2735 loops=1)
+        Hash Cond: (u.id = ec.user_id)
+        Filter: ((COALESCE(ec.c0, '0'::bigint) >= '1'::bigint) AND (COALESCE(ec.c1, '0'::bigint) <= '0'::bigint))
+        Rows Removed by Filter: 17171
+        Buffers: shared hit=15617 read=3093 written=85
+        ->  Seq Scan on users u  (cost=0.00..1411.00 rows=19917 width=9) (actual time=0.006..6.447 rows=19906 loops=1)
+              Filter: (attributes @> '{"city": "Istanbul"}'::jsonb)
+              Rows Removed by Filter: 30094
+              Buffers: shared hit=786
+        ->  Hash  (cost=27963.19..27963.19 rows=12298 width=25) (actual time=32.285..32.364 rows=11342 loops=1)
+              Buckets: 16384  Batches: 1  Memory Usage: 760kB
+              Buffers: shared hit=14831 read=3093 written=85
+              ->  Subquery Scan on ec  (cost=27717.23..27963.19 rows=12298 width=25) (actual time=29.023..30.960 rows=11342 loops=1)
+                    Buffers: shared hit=14831 read=3093 written=85
+                    ->  Finalize HashAggregate  (cost=27717.23..27840.21 rows=12298 width=25) (actual time=29.022..30.162 rows=11342 loops=1)
+                          Group Key: events.user_id
+                          Batches: 1  Memory Usage: 1425kB
+                          Buffers: shared hit=14831 read=3093 written=85
+                          ->  Gather  (cost=26324.03..27624.35 rows=12384 width=25) (actual time=25.173..26.465 rows=13063 loops=1)
+                                Workers Planned: 2
+                                Workers Launched: 2
+                                Buffers: shared hit=14831 read=3093 written=85
+                                ->  Partial HashAggregate  (cost=25324.03..25385.95 rows=6192 width=25) (actual time=23.326..23.810 rows=4354 loops=3)
+                                      Group Key: events.user_id
+                                      Batches: 1  Memory Usage: 721kB
+                                      Buffers: shared hit=14831 read=3093 written=85
+                                      Worker 0:  Batches: 1  Memory Usage: 721kB
+                                      Worker 1:  Batches: 1  Memory Usage: 721kB
+                                      ->  Parallel Seq Scan on events  (cost=0.00..25215.67 rows=6192 width=27) (actual time=19.534..22.117 rows=5161 loops=3)
+                                            Filter: ((occurred_at >= '2026-10-30 08:05:49.000651+00'::timestamp with time zone) AND ((name = 'add_to_cart'::text) OR (name = 'purchase'::text)))
+                                            Rows Removed by Filter: 328172
+                                            Buffers: shared hit=14831 read=3093 written=85
+Planning Time: 0.116 ms
+Execution Time: 41.308 ms

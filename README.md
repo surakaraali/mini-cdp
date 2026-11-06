@@ -12,7 +12,7 @@ questions like *"which users added something to their cart in the last 7 days bu
 - [x] **1. Skeleton**: project layout, PostgreSQL in Docker, schema migrations, `/health`, middleware, tests
 - [x] **2. Event ingestion**: `POST /v1/events` and `POST /v1/events/batch`, idempotent by `event_id`
 - [x] **3. Profiles and segments**: user profile, segment rules (JSON to parameterized SQL), segment members
-- [ ] **4. Performance**: 1M generated events, `EXPLAIN ANALYZE` before and after indexing
+- [x] **4. Performance**: 1M generated events, `EXPLAIN ANALYZE` before and after indexing
 - [ ] **5. Packaging**: Dockerfile, GitHub Actions CI, OpenAPI spec, final docs
 
 ## Quick start
@@ -130,6 +130,24 @@ LIMIT $9
 The events table is read once, however many event conditions there are. `max_count: 0` works for users
 who have no purchase rows at all, thanks to the `LEFT JOIN` and `COALESCE`.
 
+## Performance
+
+Measured on 1M generated events and 50k users, before and after adding indexes (full report: [docs/performance.md](docs/performance.md)):
+
+| | Before | After |
+|---|---:|---:|
+| User profile (4 queries, p50) | 89–111 ms | 1.7 ms |
+| Segment count: cart abandoners in Istanbul (p50) | 37–42 ms | 15–16 ms |
+| Delete 2,000 users (cascade to their events) | 112–115 s | 37–44 ms |
+
+Two findings worth reading in the report: an index that made one query slower until it became a covering index,
+and the missing index on a foreign key column that made deletes take minutes.
+
+```bash
+make seed    # 50k users, 1M events into the cdp_bench database
+make bench   # measure without and with the indexes
+```
+
 ## Tests
 
 ```bash
@@ -150,6 +168,8 @@ make test-unit   # only the tests that need no database
 
 ```
 cmd/api/              entry point: config, database, HTTP server, graceful shutdown
+cmd/seed/             loads generated data with COPY (make seed)
+cmd/bench/            EXPLAIN ANALYZE and timing of the API's queries (make bench)
 internal/config/      settings from environment variables
 internal/db/          connection pool and embedded SQL migrations (goose)
 internal/events/      event model, validation rules, per-user merge of a batch
@@ -157,6 +177,7 @@ internal/segments/    segment rules, validation, rules-to-SQL compiler
 internal/store/       all SQL: idempotent event insert, profiles, segment CRUD and members
 internal/httpapi/     routes, handlers, JSON decoding, middleware (request id, logging, panic recovery)
 internal/validate/    field-level validation errors
+internal/seed/        repeatable fake shop data (uneven, like real traffic)
 internal/testdb/      test helper: migrated, empty test database
 deploy/initdb/        SQL run once when the Postgres volume is created
 docs/                 design and process notes
