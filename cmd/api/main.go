@@ -53,9 +53,13 @@ func run() error {
 	}
 	log.Info("migrations checked", "applied_now", applied)
 
+	// One store serves every handler group; each handler only sees the small interface it needs.
+	st := store.New(pool)
+	api := httpapi.NewServer(log, httpapi.Deps{DB: pool, Events: st, Profiles: st, Segments: st})
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewServer(log, httpapi.Deps{DB: pool, Events: store.New(pool)}).Handler(),
+		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second, // protects against clients that send headers very slowly
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

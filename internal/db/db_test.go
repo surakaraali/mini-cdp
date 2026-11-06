@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -67,5 +68,29 @@ func assertTables(t *testing.T, pool *pgxpool.Pool, wantExist bool) {
 		if exists != wantExist {
 			t.Errorf("table %s exists = %v, want %v", table, exists, wantExist)
 		}
+	}
+}
+
+// TestTimestampsComeBackInUTC makes API responses look the same on every server:
+// without it, timestamps follow the server's time zone (+03:00 on a laptop in Istanbul, Z in Docker).
+func TestTimestampsComeBackInUTC(t *testing.T) {
+	// Pretend the server runs at UTC+3, so the test also guards the fix on CI machines that run in UTC.
+	original := time.Local
+	time.Local = time.FixedZone("UTC+3", 3*60*60)
+	t.Cleanup(func() { time.Local = original })
+
+	ctx := context.Background()
+	pool, err := Connect(ctx, testDatabaseURL(t))
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer pool.Close()
+
+	var got time.Time
+	if err := pool.QueryRow(ctx, "SELECT now()").Scan(&got); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if got.Location() != time.UTC {
+		t.Errorf("timestamp location = %v, want UTC", got.Location())
 	}
 }

@@ -16,20 +16,24 @@ type Pinger interface {
 
 // Deps lists what the handlers depend on. Each field is an interface, so tests can pass fakes.
 type Deps struct {
-	DB     Pinger
-	Events EventSaver
+	DB       Pinger
+	Events   EventSaver
+	Profiles ProfileReader
+	Segments SegmentStore
 }
 
 // Server holds what the handlers need.
 type Server struct {
-	log    *slog.Logger
-	db     Pinger
-	events EventSaver
+	log      *slog.Logger
+	db       Pinger
+	events   EventSaver
+	profiles ProfileReader
+	segments SegmentStore
 }
 
 // NewServer creates a Server.
 func NewServer(log *slog.Logger, deps Deps) *Server {
-	return &Server{log: log, db: deps.DB, events: deps.Events}
+	return &Server{log: log, db: deps.DB, events: deps.Events, profiles: deps.Profiles, segments: deps.Segments}
 }
 
 // Handler returns the router wrapped in middleware.
@@ -39,6 +43,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("POST /v1/events", s.handleCreateEvent)
 	mux.HandleFunc("POST /v1/events/batch", s.handleCreateEventBatch)
+	mux.HandleFunc("GET /v1/users/{id}", s.handleGetUser)
+	mux.HandleFunc("POST /v1/segments", s.handleCreateSegment)
+	mux.HandleFunc("GET /v1/segments", s.handleListSegments)
+	mux.HandleFunc("POST /v1/segments/preview", s.handlePreviewSegment)
+	mux.HandleFunc("GET /v1/segments/{id}", s.handleGetSegment)
+	mux.HandleFunc("PUT /v1/segments/{id}", s.handleUpdateSegment)
+	mux.HandleFunc("DELETE /v1/segments/{id}", s.handleDeleteSegment)
+	mux.HandleFunc("GET /v1/segments/{id}/users", s.handleSegmentMembers)
 
 	var h http.Handler = mux
 	h = s.recoverPanics(h)

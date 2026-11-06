@@ -32,7 +32,13 @@ const validEventJSON = `{"event_id":"0f8b6c1e-7a4d-4c8e-9b1a-2d3e4f5a6b7c","user
 // do sends one request to a server that uses saver and returns the recorded response.
 func do(t *testing.T, saver EventSaver, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	srv := NewServer(slog.New(slog.DiscardHandler), Deps{DB: fakePinger{}, Events: saver})
+	return doWith(t, Deps{DB: fakePinger{}, Events: saver}, method, path, body)
+}
+
+// doWith is like do, with every dependency chosen by the test.
+func doWith(t *testing.T, deps Deps, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	srv := NewServer(slog.New(slog.DiscardHandler), deps)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
 	return rec
